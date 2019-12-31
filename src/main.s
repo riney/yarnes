@@ -1,18 +1,20 @@
 .include "nes_constants.s"
 
-OAMBUFFER = $0200
+OAMBUFFER      = $0200
+FLY_ANIM_DELAY = 3         ; Number of frames between fly animation changes
+FLY_SPEED      = 3         ; Number of pixels to move per frame
 
 .zeropage
-  frame:        .res 1    ; current fly animation frame
-  update_ready: .res 1    ; Has the main loop finished updating the OAM buffer?
-  nmi_done:     .res 1    ; Has the NMI handler completed?
-  fly_x:        .res 1    ; fly position
-  fly_y:        .res 1
-  buttons:      .res 1    ; button state
-  eight_px:     .res 1
+  update_ready:   .res 1    ; Has the main loop finished updating the OAM buffer?
+  nmi_done:       .res 1    ; Has the NMI handler completed?
+  buttons:        .res 1    ; button state
+  fly_x:          .res 1    ; fly position
+  fly_y:          .res 1
+  fly_frame:      .res 1    ; current fly animation frame
+  fly_anim_timer: .res 1    ; frames remaining until changing fly animation frame
+  eight_px:       .res 1    ; spacing between fly metasprites
 
 .code
-
   ; Reset handler
 .proc reset
   sei           ; Disable interrupts
@@ -47,8 +49,8 @@ zeroram:
   inx
   bne zeroram
 
-  ; Final wait for PPU warmup.
 ppu_wait3:
+  ; Final wait for PPU warmup.
   bit PPUSTATUS
   bpl ppu_wait3
 
@@ -58,7 +60,8 @@ ppu_wait3:
   lda #(<PPU_PALETTE)
   sta PPUADDR
 
-  ldx #0           ; Reset X index register
+  ldx #0
+
 setpal:
   lda palettes, x  ; Load 32 bytes from the "palettes" label into PPUDATA
   sta PPUDATA
@@ -75,8 +78,10 @@ setpal:
   ldx #0
   stx update_ready
   stx nmi_done
-  stx frame
+  stx fly_frame
   stx buttons
+  ldx #FLY_ANIM_DELAY
+  stx fly_anim_timer
 
   ; Stick some stuff into the OAM buffer
   lda #$04         ; Set sprite 1 to use tile 2
@@ -107,52 +112,67 @@ setpal:
 
 forever:
 
-  ; Wait for NMI to complete
 wait_nmi:
+  ; Wait for NMI to complete
   lda nmi_done
   beq wait_nmi
   lda #0
   sta nmi_done
 
-  ; Cycle sprites 0 and 0 between animation frames, using the "frame" variable
+  lda fly_anim_timer
+  bne anim_done
+
+  lda #FLY_ANIM_DELAY
+  sta fly_anim_timer
+  ; Cycle sprites 0 and 1 between animation frames, using the "frame" variable
   ; to keep track of the current state.
-  lda frame
+  lda fly_frame
   beq flap
   lda #$02         ; Set sprite 1 to use tile 2
   sta $0205
   lda #$00         ; Set sprite 0 to use tile 0
   sta $0201
-  sta frame
+  sta fly_frame
   jmp anim_done
 flap:
   lda #$04         ; Set sprite 0 to use tile 4
   sta $0201
   lda #$06         ; Set sprite 1 to use tile 6
   sta $0205
-  sta frame
+  sta fly_frame
 
 anim_done:
+  dec fly_anim_timer
+
   ; Read the joypad and move the fly sprites
   jsr read_controller
   lda buttons
   and #BUTTON_LEFT
   beq right
-  dec fly_x
+  lda fly_x
+  sbc #FLY_SPEED
+  sta fly_x
 right:
   lda buttons
   and #BUTTON_RIGHT
   beq up
-  inc fly_x
+  lda fly_x
+  adc #FLY_SPEED
+  sta fly_x
 up:
   lda buttons
   and #BUTTON_UP
   beq down
-  dec fly_y
+  lda fly_y
+  sbc #FLY_SPEED
+  sta fly_y
 down:
   lda buttons
   and #BUTTON_DOWN
   beq update_sprites
-  inc fly_y
+  lda fly_y
+  adc #FLY_SPEED
+  sta fly_y
 
 update_sprites:
   ; Update sprite positions
