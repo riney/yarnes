@@ -1,6 +1,15 @@
 .include "nes_constants.s"
 
-FRAME = $10
+OAMBUFFER = $0200
+
+.zeropage
+  frame:        .res 1    ; current fly animation frame
+  update_ready: .res 1    ; Has the main loop finished updating the OAM buffer?
+  nmi_done:     .res 1    ; Has the NMI handler completed?
+  fly_x:        .res 1    ; fly position
+  fly_y:        .res 1
+  buttons:      .res 1    ; button state
+  eight_px:     .res 1
 
 .code
 
@@ -57,11 +66,24 @@ setpal:
   cpx #$20
   bne setpal
 
+  ; Initialize game variables
+  ldx #$20
+  stx fly_x
+  stx fly_y
+  ldx #$7
+  stx eight_px
+  ldx #0
+  stx update_ready
+  stx nmi_done
+  stx frame
+  stx buttons
+
   ; Stick some stuff into the OAM buffer
   lda #$04         ; Set sprite 1 to use tile 2
   sta $0201
-  lda #$80
+  lda fly_y
   sta $0200        ; put sprite 0 in center ($80) of screen vertically
+  lda fly_x
   sta $0203        ; put sprite 0 in center ($80) of screen horizontally
   lda #$00
   sta PPUMASK      ; tile number = 0
@@ -69,9 +91,10 @@ setpal:
 
   lda #$06         ; Set sprite 1 to use tile 2
   sta $0205
-  lda #$80
+  lda fly_y
   sta $0204        ; put sprite 1 in center ($80) of screen vertically
-  lda #$88
+  lda fly_x
+  adc eight_px
   sta $0207        ; put sprite 1 a little to the right ($88) of the other one
   lda #$00
   sta $0206        ; color palette = 0, no flipping
@@ -83,21 +106,87 @@ setpal:
   sta PPUMASK
 
 forever:
-  lda FRAME
+
+  ; Wait for NMI to complete
+wait_nmi:
+  lda nmi_done
+  beq wait_nmi
+  lda #0
+  sta nmi_done
+
+  ; Cycle sprites 0 and 0 between animation frames, using the "frame" variable
+  ; to keep track of the current state.
+  lda frame
   beq flap
   lda #$02         ; Set sprite 1 to use tile 2
   sta $0205
-  lda #$00         ; Set sprite 1 to use tile 2
+  lda #$00         ; Set sprite 0 to use tile 0
   sta $0201
-  sta FRAME
-  jmp forever
+  sta frame
+  jmp anim_done
 flap:
-  lda #$04         ; Set sprite 1 to use tile 2
+  lda #$04         ; Set sprite 0 to use tile 4
   sta $0201
-  lda #$06         ; Set sprite 1 to use tile 2
+  lda #$06         ; Set sprite 1 to use tile 6
   sta $0205
-  sta FRAME
+  sta frame
+
+anim_done:
+  ; Read the joypad and move the fly sprites
+  jsr read_controller
+  lda buttons
+  and #BUTTON_LEFT
+  beq right
+  dec fly_x
+right:
+  lda buttons
+  and #BUTTON_RIGHT
+  beq up
+  inc fly_x
+up:
+  lda buttons
+  and #BUTTON_UP
+  beq down
+  dec fly_y
+down:
+  lda buttons
+  and #BUTTON_DOWN
+  beq update_sprites
+  inc fly_y
+
+update_sprites:
+  ; Update sprite positions
+  lda fly_y
+  sta $0200        ; put sprite 0 in center ($80) of screen vertically
+  lda fly_x
+  sta $0203        ; put sprite 0 in center ($80) of screen horizontally
+  lda fly_y
+  sta $0204        ; put sprite 1 in center ($80) of screen vertically
+  lda fly_x
+  adc eight_px
+  sta $0207        ; put sprite 1 a little to the right ($88) of the other one
+
+  lda #1
+  sta update_ready ; Let the NMI handler know we're ready to update OAM
   jmp forever
+
+read_controller:
+    lda #$01
+    ; While the strobe bit is set, buttons will be continuously reloaded.
+    ; This means that reading from CONTROLLER_1 will only return the state of the
+    ; first button: button A.
+    sta CONTROLLER_1
+    sta buttons
+    lsr a        ; now A is 0
+    ; By storing 0 into CONTROLLER_1, the strobe bit is cleared and the reloading stops.
+    ; This allows all 8 buttons (newly reloaded) to be read from CONTROLLER_1.
+    sta CONTROLLER_1
+loop:
+    lda CONTROLLER_1
+    lsr a	       ; bit 0 -> Carry
+    rol buttons  ; Carry -> bit 0; bit 7 -> Carry
+    bcc loop
+    rts
 
 palettes:
   .byte $15           ; Universal BG color
@@ -113,11 +202,18 @@ palettes:
 
 ; NMI (vertical blank) handler
 .proc nmi
-  ; Do OAM buffer copy here
+  pha
+  lda update_ready
+  beq skip_update
   lda #0              ; copy into the beginning of OAM
   sta OAMADDR
   lda #(>OAMBUFFER)   ; from our OAM buffer in RAM ($0200)
   sta OAMDMA          ; and start DMA
+  lda #0              ; clear the update flag
+  sta update_ready
+skip_update:
+  inc nmi_done
+  pla                 ; and pop the accumulator, back to your regularly scheduled loop
 .endproc
 
 ; IRQ handler
