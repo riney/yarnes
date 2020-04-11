@@ -1,3 +1,7 @@
+; NES RAM areas
+NAMEBUFFER     = $0100
+OAMBUFFER      = $0200
+
 ; PPU registers
 PPUCTRL       = $2000
 PPUMASK       = $2001

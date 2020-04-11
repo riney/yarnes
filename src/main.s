@@ -1,10 +1,20 @@
 .include "nes_constants.s"
 
-OAMBUFFER      = $0200
+; Major mode constants (see major_mode variable below)
+MM_TITLE       = 1
+MM_ATTRACT     = 2
+MM_PLAYING     = 3
+MM_SCORE       = 4
+MM_GAMEOVER    = 5
+
+; Game speed constants
 FLY_ANIM_DELAY = 3         ; Number of frames between fly animation changes
 FLY_SPEED      = 3         ; Number of pixels to move per frame
 
 .zeropage
+  major_mode:     .res 1    ; Current overall state of the game; title, playing, game over, etc.
+  game_mode:      .res 1    ; state of gameplay; bitfields for if the player has the cannon,
+                            ; if the quotile is swirly, etc.
   update_ready:   .res 1    ; Has the main loop finished updating the OAM buffer?
   nmi_done:       .res 1    ; Has the NMI handler completed?
   buttons:        .res 1    ; button state
@@ -80,8 +90,11 @@ setpal:
   stx nmi_done
   stx fly_frame
   stx buttons
+  stx game_mode
   ldx #FLY_ANIM_DELAY
   stx fly_anim_timer
+  ldx #MM_TITLE
+  stx major_mode
 
   ; Stick some stuff into the OAM buffer
   lda #$04         ; Set sprite 1 to use tile 2
