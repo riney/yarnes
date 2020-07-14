@@ -25,7 +25,7 @@ FLY_SPEED      = 3         ; Number of pixels to move per frame
   eight_px:       .res 1    ; spacing between fly metasprites
 
 .code
-  ; Reset handler
+  ; *************** RESET HANDLER *************** 
 .proc reset
   sei           ; Disable interrupts
   cld           ; Clear decimal mode
@@ -122,8 +122,10 @@ setpal:
 
   lda #%00010000   ; no intensify (black background), enable sprites
   sta PPUMASK
+; *************** END RESET HANDLER *************** 
 
-forever:
+; *************** MAIN LOOP *************** 
+forever:          
 
 wait_nmi:
   ; Wait for NMI to complete
@@ -201,7 +203,9 @@ update_sprites:
 
   lda #1
   sta update_ready ; Let the NMI handler know we're ready to update OAM
-  jmp forever
+  jmp forever      
+
+; *************** END MAIN LOOP *************** 
 
 read_controller:
     lda #$01
@@ -259,7 +263,3 @@ skip_update:
   .addr nmi
   .addr reset
   .addr irq
-
-; CHR table
-.segment "CHR0"
-  .incbin "graphics/chr0_rearranged.chr"
