@@ -1,4 +1,4 @@
-# yarnes(Y-r's R-venge for the NES)
+# yarnes (Y-r's R-venge for the NES)
 
 Porting (well, re-implementing) a certain 2600 game to the NES. Uses no original code. Targets the [NROM mapper](https://wiki.nesdev.com/w/index.php/NROM), AKA no mapper at all.
 
